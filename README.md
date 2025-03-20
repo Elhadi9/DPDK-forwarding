@@ -11,6 +11,9 @@ make
 3. Run the Program
 ./build/libradius-linux-shared
 
+4. You can change args as you need from config file "config.json"
+
+
 Dependencies
 The following dependencies are required to build and run the project:
 
