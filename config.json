@@ -1,0 +1,15 @@
+{
+  "REDIS_HOST": "127.0.0.1",
+  "REDIS_PORT": 6379,
+  "RADIUS_IP": "10.53.210.74",
+  "RADIUS_PORT": 1813,
+  "INPUT_MAPPING_FILE": "output.txt",
+  "engine": "mobile",
+  "eal_args": [
+    "control ",
+    "-l 2-10",
+    "-n 4",
+    "--",
+    "-p 1"
+  ]
+}

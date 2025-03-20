@@ -1,0 +1,9 @@
+make.exe --dry-run --always-make --keep-going --print-directory
+make: Entering directory 'c:/Users/elhad/Downloads/Task-DPDk/DPDKK-forwarding'
+ 
+/usr/bin/bash: line 1: pkg-config: command not found
+
+Makefile:16: *** "no installation of DPDK found".  Stop.
+
+make: Leaving directory 'c:/Users/elhad/Downloads/Task-DPDk/DPDKK-forwarding'
+ 

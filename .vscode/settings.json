@@ -1,0 +1,31 @@
+{
+    "files.associations": {
+        "*.tcc": "c",
+        "optional": "c",
+        "istream": "c",
+        "ostream": "c",
+        "system_error": "c",
+        "array": "c",
+        "functional": "c",
+        "tuple": "c",
+        "type_traits": "c",
+        "utility": "c",
+        "ring_buffer.h": "c",
+        "functions.h": "c",
+        "structures.h": "c",
+        "cstdlib": "c",
+        "rte_mpls.h": "c",
+        "diameter.h": "c",
+        "string_view": "c",
+        "rte_sctp.h": "c",
+        "private.h": "c",
+        "radlib.h": "c",
+        "signal.h": "c",
+        "pthread.h": "c",
+        "radiususeravps.h": "c",
+        "socket.h": "c",
+        "json_tokener.h": "c",
+        "dpdk.h": "c",
+        "handle.h": "c"
+    }
+}

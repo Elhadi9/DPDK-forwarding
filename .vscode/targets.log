@@ -1,0 +1,264 @@
+make.exe all --print-data-base --no-builtin-variables --no-builtin-rules --question
+/usr/bin/bash: line 1: pkg-config: command not found
+
+Makefile:16: *** "no installation of DPDK found".  Stop.
+
+# GNU Make 4.4.1
+# Built for Windows32
+# Copyright (C) 1988-2023 Free Software Foundation, Inc.
+# License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>
+# This is free software: you are free to change and redistribute it.
+# There is NO WARRANTY, to the extent permitted by law.
+
+# Make data base, printed on Thu Mar 20 17:27:49 2025
+
+# Variables
+
+# environment
+SYSTEMDRIVE = C:
+# environment
+JAVA_HOME = C:\Program Files\Java\jdk1.8.0_60
+# environment
+LC_ALL = C
+# environment
+USERPROFILE = C:\Users\elhad
+# environment
+LOCALAPPDATA = C:\Users\elhad\AppData\Local
+# environment
+VSCODE_CRASH_REPORTER_PROCESS_TYPE = extensionHost
+# environment
+VSCODE_CWD = C:\Users\elhad\Downloads\Task-DPDk
+# environment
+CHOCOLATEYINSTALL = C:\ProgramData\chocolatey
+# environment
+SYSTEMROOT = C:\WINDOWS
+# environment
+PROCESSOR_LEVEL = 6
+# makefile (from 'Makefile', line 2)
+APP = libradius-linux
+# environment
+PSMODULEPATH = C:\Program Files\WindowsPowerShell\Modules;C:\WINDOWS\system32\WindowsPowerShell\v1.0\Modules
+# default
+MAKE_COMMAND := C:/ProgramData/chocolatey/lib/make/tools/install/bin/make.exe
+# automatic
+@D = $(patsubst %/,%,$(patsubst %\,%,$(dir $@)))
+# environment
+CHROME_CRASHPAD_PIPE_NAME = \\.\pipe\crashpad_22780_DWWMEMUZJRDFUFII
+# environment
+VSCODE_HANDLES_UNCAUGHT_ERRORS = true
+# default
+.VARIABLES := 
+# automatic
+%D = $(patsubst %/,%,$(patsubst %\,%,$(dir $%)))
+# automatic
+^D = $(patsubst %/,%,$(patsubst %\,%,$(dir $^)))
+# automatic
+%F = $(notdir $%)
+# environment
+VSCODE_CODE_CACHE_PATH = C:\Users\elhad\AppData\Roaming\Code\CachedData\ddc367ed5c8936efe395cffeec279b04ffd7db78
+# environment
+LANG = C
+# default
+.LOADED := 
+# environment
+TMP = C:\Users\elhad\AppData\Local\Temp
+# default
+.INCLUDE_DIRS := .
+# environment
+PROCESSOR_ARCHITEW6432 = AMD64
+# makefile
+MAKEFLAGS = pqrR
+# makefile (from 'Makefile', line 12)
+PKGCONF = pkg-config
+# environment
+ONEDRIVE = C:\Users\elhad\OneDrive
+# makefile
+CURDIR := c:/Users/elhad/Downloads/Task-DPDk/DPDKK-forwarding
+# makefile (from 'Makefile', line 10)
+SRCS-y := main.c dpdkInit/dpdk.c handle/handle.c
+# environment
+APPLICATION_INSIGHTS_NO_DIAGNOSTIC_CHANNEL = true
+# automatic
+*D = $(patsubst %/,%,$(patsubst %\,%,$(dir $*)))
+# environment
+PROGRAMFILES = C:\Program Files (x86)
+# environment
+MFLAGS = -pqrR
+# default
+.SHELLFLAGS := -c
+# environment
+COMMONPROGRAMW6432 = C:\Program Files\Common Files
+# automatic
++D = $(patsubst %/,%,$(patsubst %\,%,$(dir $+)))
+# makefile (from 'Makefile', line 1)
+MAKEFILE_LIST := Makefile
+# automatic
+@F = $(notdir $@)
+# environment
+VSCODE_PID = 22780
+# automatic
+?D = $(patsubst %/,%,$(patsubst %\,%,$(dir $?)))
+# automatic
+*F = $(notdir $*)
+# automatic
+<D = $(patsubst %/,%,$(patsubst %\,%,$(dir $<)))
+# environment
+VSCODE_NLS_CONFIG = {"userLocale":"en-us","osLocale":"en-us","resolvedLanguage":"en","defaultMessagesFile":"C:\\Users\\elhad\\AppData\\Local\\Programs\\Microsoft VS Code\\resources\\app\\out\\nls.messages.json","locale":"en-us","availableLanguages":{}}
+# default
+MAKE_HOST := Windows32
+# environment
+PROGRAMDATA = C:\ProgramData
+# default
+SHELL := C:/Program Files/Git/bin/sh.exe
+# environment
+HOMEPATH = \Users\elhad
+# default
+MAKECMDGOALS := all
+# environment
+DRIVERDATA = C:\Windows\System32\Drivers\DriverData
+# environment
+COMSPEC = C:\WINDOWS\system32\cmd.exe
+# environment
+WINDIR = C:\WINDOWS
+# environment
+MAKELEVEL := 0
+# default
+MAKE = $(MAKE_COMMAND)
+# environment
+PATH = C:\Program Files\Common Files\Oracle\Java\javapath;C:\Program Files (x86)\Common Files\Oracle\Java\javapath;C:\ProgramData\Oracle\Java\javapath;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\mingw32\bin;C:\Users\elhad\Desktop\01-mingw-w64_x64\mingw64\bin;C:\Users\elhad\Desktop\avr8-gnu-toolchain-3.7.0.1796-win32.any.x86_64\avr8-gnu-toolchain-win32_x86_64\bin;C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\Program Files\Git\cmd\;";C:\Program Files\Git\bin\;C:\Program Files\Git\cmd\";C:\Program Files\dotnet\;C:\ProgramData\chocolatey\bin;;C:\Program Files\NVIDIA Corporation\NVIDIA app\NvDLISR;%SystemRoot%\system32;%SystemRoot%;%SystemRoot%\System32\Wbem;%SYSTEMROOT%\System32\WindowsPowerShell\v1.0\;%SYSTEMROOT%\System32\OpenSSH\;C:\Users\elhad\.cargo\bin;C:\Users\elhad\AppData\Local\Programs\Python\Python37\Scripts\;C:\Users\elhad\AppData\Local\Programs\Python\Python37\;C:\Users\elhad\AppData\Local\Microsoft\WindowsApps;C:\Users\elhad\AppData\Local\Programs\Microsoft VS Code\bin;
+# environment
+COMPUTERNAME = DESKTOP-8B6B8IU
+# default
+MAKEFILES := 
+# automatic
+^F = $(notdir $^)
+# environment
+PROMPT = $P$G
+# environment
+CHOCOLATEYLASTPATHUPDATE = 133548842283086859
+# environment
+LOGONSERVER = \\DESKTOP-8B6B8IU
+# environment
+USERNAME = elhad
+# environment
+EFC_9312 = 1
+# environment
+COMMONPROGRAMFILES = C:\Program Files (x86)\Common Files
+# automatic
+?F = $(notdir $?)
+# environment
+PROGRAMW6432 = C:\Program  
+Files
+# environment
+PATHEXT = .COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC
+# automatic
++F = $(notdir $+)
+# environment
+ORIGINAL_XDG_CURRENT_DESKTOP = undefined
+# environment
+USERDOMAIN = DESKTOP-8B6B8IU
+# environment
+OS = Windows_NT
+# makefile
+.DEFAULT_GOAL := 
+# default
+MAKE_VERSION := 4.4.1
+# 'override' directive
+.SHELLSTATUS := 127
+# environment
+PROGRAMFILES(X86) = C:\Program Files (x86)
+# environment
+USERDOMAIN_ROAMINGPROFILE = DESKTOP-8B6B8IU
+# environment
+NUMBER_OF_PROCESSORS = 8
+# environment
+PUBLIC = C:\Users\Public
+# environment
+APPDATA = C:\Users\elhad\AppData\Roaming
+# environment
+HOMEDRIVE = C:
+# environment
+PROCESSOR_ARCHITECTURE = x86
+# environment
+COMMONPROGRAMFILES(X86) = C:\Program Files (x86)\Common Files
+# environment
+ELECTRON_RUN_AS_NODE = 1
+# environment
+TEMP = C:\Users\elhad\AppData\Local\Temp
+# environment
+VSCODE_IPC_HOOK = \\.\pipe\70aef791-1.98.2-main-sock
+# default
+.RECIPEPREFIX := 
+# automatic
+<F = $(notdir $<)
+# default
+SUFFIXES := 
+# environment
+ALLUSERSPROFILE = C:\ProgramData
+# environment
+SESSIONNAME = Console
+# default
+.FEATURES := target-specific order-only second-expansion else-if shortest-stem undefine oneshell nocomment grouped-target extra-prereqs notintermediate shell-export archives jobserver output-sync load dospaths
+# environment
+PROCESSOR_REVISION = 9e0d
+# environment
+VSCODE_ESM_ENTRYPOINT = vs/workbench/api/node/extensionHostProcess
+# environment
+PROCESSOR_IDENTIFIER = Intel64 Family 6 Model 158 Stepping 13, GenuineIntel
+# environment
+JRE_HOME = C:\Program Files\Java\jdk1.8.0_60\jre
+# variable set hash-table stats:
+# Load=96/1024=9%, Rehash=0, Collisions=5/116=4%
+
+# Pattern-specific Variable Values
+
+# No pattern-specific variable values.
+
+# Directories
+
+# . (key c:/Users/elhad/Downloads/Task-DPDk/DPDKK-forwarding, mtime 1742484435): 13 files, no impossibilities.
+
+# 13 files, no impossibilities in 1 directories.
+
+# Implicit Rules
+
+# No implicit rules.
+
+# Files
+
+# Not a target:
+Makefile:
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
+# Not a target:
+.DEFAULT:
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
+# Not a target:
+all:
+#  Command line target.
+#  Implicit rule search has not been done.
+#  Modification time never checked.
+#  File has not been updated.
+
+# files hash-table stats:
+# Load=4/1024=0%, Rehash=0, Collisions=0/5=0%
+# VPATH Search Paths
+
+# No 'vpath' search paths.
+
+# No general ('VPATH' variable) search path.
+
+# strcache buffers: 1 (0) / strings = 16 / storage = 121 B / avg = 7 B
+# current buf: size = 8174 B / used = 121 B / count = 16 / avg = 7 B
+
+# strcache performance: lookups = 20 / hit rate = 20%
+# hash-table stats:
+# Load=16/8192=0%, Rehash=0, Collisions=0/20=0%
+# Finished Make data base on Thu Mar 20 17:27:49 2025
+
+ 
