@@ -10,7 +10,6 @@
 #define DEFAULT_CONFIG_FILE "config.json"
 
 struct readConf read;
-const char *filename = "exData.xml.data";
 
 /**
  * @brief Load configurations from a JSON file.
