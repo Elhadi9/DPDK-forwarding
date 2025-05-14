@@ -6,8 +6,8 @@ APP = libradius-linux
 
 # all source are stored in SRCS-y
 SRCS-y := main.c
-SRCS-y += dpdkInit/dpdk.c
-SRCS-y += handle/handle.c
+SRCS-y += dpdk/dpdk.c
+SRCS-y += packet_processor/processor.c
 
 PKGCONF ?= pkg-config
 

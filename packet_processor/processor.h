@@ -1,5 +1,5 @@
-#ifndef HANDLE_H
-#define HANDLE_H
+#ifndef PROCESSOR_H
+#define PROCESSOR_H
 
 #include <rte_mbuf.h>
 
@@ -9,18 +9,12 @@
 #define ETH_P_IPV4	0x0800
 #define ETH_P_IPV6	0x86DD
 
+#define BURST_TX_DRAIN_US 100
+
 /* Configuration Constants */
 #define MAX_IP_STRING_LEN    16
 #define ETH_VLAN_HLEN        4
 
-struct packet_data
-{
-    char *in;
-    int in_len;
-    int in_pos;
-};
+int packet_processor_main(void *arg);
 
-void handle_packet(struct rte_mbuf *buf);
-void packet_handler_set_dst_mac(const uint8_t mac[6]);
-
-#endif
+#endif // PROCESSOR_H
