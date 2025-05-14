@@ -1,13 +1,12 @@
-#include <inttypes.h>
-#include <rte_eal.h>
+#include <stdio.h>
 #include <rte_ethdev.h>
 #include <rte_mbuf.h>
-#include <rte_ether.h>
-#include <rte_ip.h>
-#include <rte_tcp.h>
-#include <rte_udp.h>
-#include "handle.h"
+#include "processor.h"
+#include "../dpdk/dpdk.h"
 #include "../private.h"
+
+static volatile bool running = true;
+
 
 /* Thread-local packet counter */
 RTE_DEFINE_PER_LCORE(uint64_t, packet_count) = 0;
@@ -118,4 +117,54 @@ void handle_packet(struct rte_mbuf *buf) {
 
     /* Forward packet or other processing */
     /* ... */
+}
+
+int packet_processor_main(void *arg) {
+    const dpdk_port_config *config = dpdk_get_port_config();
+    const unsigned lcore_id = rte_lcore_id();
+    uint64_t total_packets = 0;
+    uint64_t last_print = 0;
+    const uint64_t print_interval = rte_get_tsc_hz(); // 1 second
+    
+    printf("Packet processor started on core %u\n", lcore_id);
+    
+    while (running) {
+        bool work_done = false;
+        uint64_t start_cycle = rte_rdtsc();
+        
+        // Process all ports
+        for (int i = 0; i < config->num_ports; i++) {
+            uint16_t port_id = config->port_ids[i];
+            struct rte_mbuf *mbufs[BURST_SIZE];
+            uint16_t nb_rx;
+            
+            nb_rx = rte_eth_rx_burst(port_id, 0, mbufs, BURST_SIZE);
+            if (nb_rx == 0)
+                continue;
+                
+            work_done = true;
+            total_packets += nb_rx;
+            
+            for (int j = 0; j < nb_rx; j++) {
+                handle_packet(mbufs[j]);
+                rte_pktmbuf_free(mbufs[j]);
+            }
+        }
+        
+        // Print throughput statistics periodically
+        if (start_cycle - last_print > print_interval) {
+            printf("Core %u processed %"PRIu64" packets (%.2f Mpps)\n",
+                  lcore_id, total_packets, 
+                  (double)total_packets / 1000000);
+            total_packets = 0;
+            last_print = start_cycle;
+        }
+        
+        if (!work_done) {
+            rte_pause(); // More efficient than delay
+        }
+    }
+    
+    printf("Packet processor exiting on core %u\n", lcore_id);
+    return 0;
 }

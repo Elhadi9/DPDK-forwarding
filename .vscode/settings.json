@@ -27,6 +27,7 @@
         "json_tokener.h": "c",
         "dpdk.h": "c",
         "handle.h": "c",
-        "typeinfo": "c"
+        "typeinfo": "c",
+        "processor.h": "c"
     }
 }
