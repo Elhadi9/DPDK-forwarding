@@ -26,6 +26,7 @@
         "socket.h": "c",
         "json_tokener.h": "c",
         "dpdk.h": "c",
-        "handle.h": "c"
+        "handle.h": "c",
+        "typeinfo": "c"
     }
 }

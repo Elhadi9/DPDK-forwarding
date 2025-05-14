@@ -1,126 +1,121 @@
 #include <inttypes.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
-#include <rte_cycles.h>
-#include <rte_lcore.h>
 #include <rte_mbuf.h>
+#include <rte_ether.h>
+#include <rte_ip.h>
+#include <rte_tcp.h>
+#include <rte_udp.h>
 #include "handle.h"
 #include "../private.h"
-#include <pthread.h>
-#include "../private.h"
-#include <rte_sctp.h>
-#include <rte_ether.h>
-#include <linux/if_ether.h>
 
-// Global variables
-char ip_string_dst[MAX_IP_STRING_LENGTH];
-char ip_string_src[MAX_IP_STRING_LENGTH];
-extern struct readConf read;
-int proto;
-uint16_t port_dst, port_src;
+/* Thread-local packet counter */
+RTE_DEFINE_PER_LCORE(uint64_t, packet_count) = 0;
 
-#define ETH_P_IPV4 0x0800
-#define ETH_VLAN_HLEN 4
+/* Packet Metadata Structure */
+typedef struct {
+    char src_ip[MAX_IP_STRING_LEN];
+    char dst_ip[MAX_IP_STRING_LEN];
+    uint16_t src_port;
+    uint16_t dst_port;
+    uint8_t protocol;
+} PacketMetadata;
 
-void get_ip_string(const long *ip, char *buf)
-{
-	const u_int8_t *a = (const u_int8_t *)ip;
-	sprintf(buf, "%u.%u.%u.%u", a[0], a[1], a[2], a[3]);
+/* Helper Functions */
+static inline bool validate_packet_length(struct rte_mbuf *buf, size_t required) {
+    return rte_pktmbuf_data_len(buf) >= required;
 }
 
-/**
- * @brief Handle all received packets by DPDK.
- *
- * @param buf The received packet buffer.
- */
-void handle_packet(struct rte_mbuf *buf)
-{
-    uint32_t ip_dst, ip_src;
-    uint16_t sctp_offset = 0;
-    struct linux_capture *capt;
-    struct rte_ether_hdr *eth_hdr;
-    struct rte_ipv4_hdr *ipv4_hdr;
-    struct rte_udp_hdr *udp;
-    struct rte_tcp_hdr *tcp;
-    struct rte_sctp_hdr *rte_sctp_hdr = NULL;
+static void format_ipv4_address(uint32_t addr, char *buffer) {
+    const uint8_t *bytes = (const uint8_t *)&addr;
+    snprintf(buffer, MAX_IP_STRING_LEN, "%u.%u.%u.%u", 
+             bytes[0], bytes[1], bytes[2], bytes[3]);
+}
 
-    // Extract Ethernet header
-    eth_hdr = rte_pktmbuf_mtod(buf, struct rte_ether_hdr *);
+/* Protocol Handlers */
+static bool handle_transport_layer(struct rte_ipv4_hdr *ipv4, PacketMetadata *meta) {
+    void *transport_hdr = (uint8_t *)ipv4 + sizeof(*ipv4);
+    uint16_t payload_len = rte_be_to_cpu_16(ipv4->total_length) - sizeof(*ipv4);
 
-    // Check for 802.1Q VLAN header (0x8100 indicates VLAN tagging)
-    if (rte_be_to_cpu_16(eth_hdr->ether_type) == ETH_P_8021Q)
-    {
-        // Skip the VLAN header (4 bytes)
-        eth_hdr = (struct rte_ether_hdr *)((unsigned char *)eth_hdr + ETH_VLAN_HLEN);
-    }
-
-    // Drop non-IPv4 packets
-    if (rte_be_to_cpu_16(eth_hdr->ether_type) != ETH_P_IPV4) {  
-        rte_pktmbuf_free(buf);  // Free the packet buffer
-        return;                 // Ignore non-IPv4 packets
+    switch (ipv4->next_proto_id) {
+        case IPPROTO_TCP: {
+            if (payload_len < sizeof(struct rte_tcp_hdr)) return false;
+            struct rte_tcp_hdr *tcp = transport_hdr;
+            meta->src_port = rte_be_to_cpu_16(tcp->src_port);
+            meta->dst_port = rte_be_to_cpu_16(tcp->dst_port);
+            break;
+        }
+        case IPPROTO_UDP: {
+            if (payload_len < sizeof(struct rte_udp_hdr)) return false;
+            struct rte_udp_hdr *udp = transport_hdr;
+            meta->src_port = rte_be_to_cpu_16(udp->src_port);
+            meta->dst_port = rte_be_to_cpu_16(udp->dst_port);
+            break;
+        }
+        default:
+            return false;
     }
     
-    // Modify the destination MAC address
-    struct rte_ether_addr new_dst_mac = {{0x00, 0x11, 0x22, 0x33, 0x44, 0x55}}; // random MAC
-    rte_ether_addr_copy(&new_dst_mac, &eth_hdr->dst_addr);
+    meta->protocol = ipv4->next_proto_id;
+    return true;
+}
 
-    if (eth_hdr->ether_type != 0)
-        ipv4_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
-    else
-    {
-        capt = rte_pktmbuf_mtod(buf, struct rte_ether_hdr *);
-        ipv4_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
+static bool handle_ipv4(struct rte_ether_hdr *eth_hdr, PacketMetadata *meta) {
+    if (!validate_packet_length((struct rte_mbuf *)eth_hdr, 
+                               sizeof(*eth_hdr) + sizeof(struct rte_ipv4_hdr))) {
+        return false;
     }
 
-    // Check if ipv4_hdr is NULL
-    if (!ipv4_hdr)
-    {
+    struct rte_ipv4_hdr *ipv4 = (struct rte_ipv4_hdr *)(eth_hdr + 1);
+    format_ipv4_address(ipv4->src_addr, meta->src_ip);
+    format_ipv4_address(ipv4->dst_addr, meta->dst_ip);
+
+    return handle_transport_layer(ipv4, meta);
+}
+
+static struct rte_ether_hdr * handle_vlan(struct rte_ether_hdr *eth_hdr) {
+    if (rte_be_to_cpu_16(eth_hdr->ether_type) == ETH_P_8021Q) {
+        return (struct rte_ether_hdr *)((uint8_t *)eth_hdr + ETH_VLAN_HLEN);
+    }
+    return eth_hdr;
+}
+
+/* Main Packet Handler */
+void handle_packet(struct rte_mbuf *buf) {
+    PacketMetadata meta = {0};
+    unsigned lcore_id = rte_lcore_id();
+
+    /* Update per-lcore packet counter */
+    RTE_PER_LCORE(packet_count)++;
+
+    /* Extract Ethernet header */
+    struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(buf, struct rte_ether_hdr *);
+    
+    /* Handle VLAN tagging */
+    eth_hdr = handle_vlan(eth_hdr);
+    
+    /* Process IPv4 packets only */
+    if (rte_be_to_cpu_16(eth_hdr->ether_type) != ETH_P_IPV4) {
         rte_pktmbuf_free(buf);
         return;
     }
 
-    // Verify packet length
-    uint16_t temp_len = rte_pktmbuf_pkt_len(buf);
-    if (sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_udp_hdr) > temp_len)
-    {
+    /* Process IP and transport layers */
+    if (!handle_ipv4(eth_hdr, &meta)) {
+        rte_pktmbuf_free(buf);
         return;
     }
 
-    if (ipv4_hdr->total_length < temp_len)
-    {
-        temp_len = ipv4_hdr->total_length;
-    }
+    /* Log packet information (thread-safe) */
+    printf("[Core %u] Packet %"PRIu64":\n"
+           "  SRC: %s:%"PRIu16"\n"
+           "  DST: %s:%"PRIu16"\n"
+           "  Protocol: %s\n",
+           lcore_id, RTE_PER_LCORE(packet_count),
+           meta.src_ip, meta.src_port,
+           meta.dst_ip, meta.dst_port,
+           meta.protocol == IPPROTO_TCP ? "TCP" : "UDP");
 
-    proto = ipv4_hdr->next_proto_id;
-    temp_len -= sizeof(struct rte_ipv4_hdr);
-
-    switch (ipv4_hdr->next_proto_id)
-    {
-    case IPPROTO_TCP:
-        tcp = (struct rte_tcp_hdr *)((unsigned char *)ipv4_hdr + sizeof(struct rte_ipv4_hdr));
-        port_dst = rte_be_to_cpu_16(tcp->dst_port);
-        port_src = rte_be_to_cpu_16(tcp->src_port);
-        break;
-    case IPPROTO_UDP:
-        udp = (struct rte_udp_hdr *)((unsigned char *)ipv4_hdr + sizeof(struct rte_ipv4_hdr));
-        port_dst = rte_be_to_cpu_16(udp->dst_port);
-        port_src = rte_be_to_cpu_16(udp->src_port);
-        if (udp->dgram_len > temp_len)
-        {
-            udp->dgram_len = temp_len;
-        }
-        break;
-    default:
-        port_dst = 0;
-        port_src = 0;
-        return;
-    }
-
-    // Convert IP addresses to strings
-    get_ip_string(&(ipv4_hdr->dst_addr), ip_string_dst);
-    get_ip_string(&(ipv4_hdr->src_addr), ip_string_src);
-
-    printf("\nSRC IP: %s\n", ip_string_src);
-    printf("DST IP: %s\n", ip_string_dst);
-
+    /* Forward packet or other processing */
+    /* ... */
 }

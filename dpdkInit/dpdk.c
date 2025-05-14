@@ -15,9 +15,22 @@
 #include "../handle/handle.h"
 #include "../private.h"
 
-// Global variables
-struct port_info ports;
-extern struct readConf read;
+/* Constants */
+#define TEMP_BUF_SIZE        6
+#define MAC_ADDR_STR_LEN     18
+#define STATS_PRINT_INTERVAL 1000000  // 1 second in microseconds
+#define MAX_PORT_NAME_LEN    32
+
+/* Global Context */
+static DpdkContext g_ctx = {0};
+
+/* Signal handler for cleanup */
+static void signal_handler(int signum) {
+    if (signum == SIGINT || signum == SIGTERM) {
+        printf("\nShutting down gracefully...\n");
+        g_ctx.running = false;
+    }
+}
 
 void print_packet_stats(uint16_t port_id) {
     struct rte_eth_stats stats;
@@ -29,223 +42,346 @@ void print_packet_stats(uint16_t port_id) {
         printf("  TX Bytes  : %" PRIu64 "\n", stats.obytes);
         printf("  RX Errors : %" PRIu64 "\n", stats.ierrors);
         printf("  TX Errors : %" PRIu64 "\n", stats.oerrors);
-    } else {
-        printf("Failed to get stats for port %u\n", port_id);
     }
 }
 
-/**
- * @brief Parse port mask and identify ports to be used.
- *
- * @param portmask The port mask as a string.
- * @return 0 on success, -1 on failure.
- */
-int parse_portmask(const char *portmask)
-{
+static int parse_portmask(const char *portmask, PortInfo *ports) {
     char *end = NULL;
-    unsigned long long pm;
-    uint16_t id;
+    unsigned long pm;
 
-    if (portmask == NULL || *portmask == '\0')
-        return -1;
+    if (!portmask || !*portmask) {
+        fprintf(stderr, "Empty portmask\n");
+        return -EINVAL;
+    }
 
-    // Convert parameter to a number and verify
     errno = 0;
-    pm = strtoull(portmask, &end, 16);
-    if (errno != 0 || end == NULL || *end != '\0')
-        return -1;
-
-    // Iterate over each port and add valid ports to the ports struct
-    RTE_ETH_FOREACH_DEV(id)
-    {
-        unsigned long msk = 1u << id;
-
-        if ((pm & msk) == 0)
-            continue;
-
-        pm &= ~msk;
-        ports.id[ports.num_ports++] = id;
+    pm = strtoul(portmask, &end, 16);
+    
+    if (errno != 0 || end == NULL || *end != '\0') {
+        fprintf(stderr, "Invalid portmask format: %s (Must be hexadecimal, e.g., 0x1)\n", portmask);
+        return -EINVAL;
     }
 
-    if (pm != 0)
-    {
-        printf("WARNING: leftover ports in mask %#llx - ignoring\n", pm);
+    uint16_t port_id;
+    unsigned found = 0;
+    RTE_ETH_FOREACH_DEV(port_id) {
+        if (pm & (1UL << port_id)) {
+            if (ports->num_ports >= RTE_MAX_ETHPORTS) {
+                fprintf(stderr, "Maximum number of ports (%d) exceeded\n", RTE_MAX_ETHPORTS);
+                return -ENOSPC;
+            }
+            ports->id[ports->num_ports++] = port_id;
+            found++;
+        }
     }
+
+    if (!found) {
+        fprintf(stderr, "No valid ports found in mask 0x%lx\n", pm);
+        return -ENODEV;
+    }
+
     return 0;
 }
 
-/**
- * @brief Initialize a port with given configurations.
- *
- * @param port The port to initialize.
- * @param mbuf_pool The memory buffer pool for packet storage.
- * @return 0 on success, negative on failure.
- */
-int port_init(uint16_t port, struct rte_mempool *mbuf_pool)
-{
-	struct rte_eth_conf port_conf;
-	const uint16_t rx_rings = 1, tx_rings = 1;
-	uint16_t nb_rxd = RX_RING_SIZE;
-	uint16_t nb_txd = TX_RING_SIZE;
-	int retval;
-	uint16_t q;
-	struct rte_eth_dev_info dev_info;
-	struct rte_eth_txconf txconf;
+static int configure_port(uint16_t port, const struct rte_mempool *mbuf_pool) {
+    struct rte_eth_conf port_conf = {0};
+    struct rte_eth_dev_info dev_info;
+    struct rte_eth_txconf txconf;
+    int ret;
 
-	if (!rte_eth_dev_is_valid_port(port))
-		return -1;
-
-	memset(&port_conf, 0, sizeof(struct rte_eth_conf));
-
-	retval = rte_eth_dev_info_get(port, &dev_info);
-	if (retval != 0) {
-		printf("Error during getting device (port %u) info: %s\n",
-				port, strerror(-retval));
-		return retval;
-	}
-
-	if (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE)
-		port_conf.txmode.offloads |=
-			RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
-
-	/* Configure the Ethernet device. */
-	retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
-	if (retval != 0)
-		return retval;
-
-	retval = rte_eth_dev_adjust_nb_rx_tx_desc(port, &nb_rxd, &nb_txd);
-	if (retval != 0)
-		return retval;
-
-	/* Allocate and set up 1 RX queue per Ethernet port. */
-	for (q = 0; q < rx_rings; q++) {
-		retval = rte_eth_rx_queue_setup(port, q, nb_rxd,
-				rte_eth_dev_socket_id(port), NULL, mbuf_pool);
-		if (retval < 0)
-			return retval;
-	}
-
-	txconf = dev_info.default_txconf;
-	txconf.offloads = port_conf.txmode.offloads;
-	/* Allocate and set up 1 TX queue per Ethernet port. */
-	for (q = 0; q < tx_rings; q++) {
-		retval = rte_eth_tx_queue_setup(port, q, nb_txd,
-				rte_eth_dev_socket_id(port), &txconf);
-		if (retval < 0)
-			return retval;
-	}
-
-	/* Starting Ethernet port. 8< */
-	retval = rte_eth_dev_start(port);
-	/* >8 End of starting of ethernet port. */
-	if (retval < 0)
-		return retval;
-
-	/* Display the port MAC address. */
-	struct rte_ether_addr addr;
-	retval = rte_eth_macaddr_get(port, &addr);
-	if (retval != 0)
-		return retval;
-
-	printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8
-			   " %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
-			port, RTE_ETHER_ADDR_BYTES(&addr));
-
-	/* Enable RX in promiscuous mode for the Ethernet device. */
-	retval = rte_eth_promiscuous_enable(port);
-	/* End of setting RX port in promiscuous mode. */
-	if (retval != 0)
-		return retval;
-
-	return 0;
-}
-
-/**
- * @brief Main processing loop for handling packets on the lcore.
- */
-__rte_noreturn void lcore_main(void)
-{
-    uint16_t port;
-
-    // Check NUMA alignment and warn if ports are on remote NUMA node
-    for (int i = 0; i < ports.num_ports; i++)
-    {
-        if (rte_eth_dev_socket_id(ports.id[i]) >= 0 && rte_eth_dev_socket_id(ports.id[i]) != (int)rte_socket_id())
-            printf("WARNING, port %u is on remote NUMA node to polling thread.\n\tPerformance will not be optimal.\n", ports.id[i]);
+    if (!rte_eth_dev_is_valid_port(port)) {
+        fprintf(stderr, "Invalid port ID %u\n", port);
+        return -EINVAL;
     }
 
-    printf("\n[Ctrl+C to quit]\n");
+    if ((ret = rte_eth_dev_info_get(port, &dev_info))) {
+        fprintf(stderr, "Failed to get device info for port %u: %s\n",
+                port, strerror(-ret));
+        return ret;
+    }
 
-    // Infinite loop for processing packets
-    for (;;)
-    {
-        for (int i = 0; i < ports.num_ports; i++) {
-            struct rte_mbuf *bufs[BURST_SIZE];
-            const uint16_t nb_rx = rte_eth_rx_burst(ports.id[i], 0, bufs, BURST_SIZE);
+    if (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE) {
+        port_conf.txmode.offloads |= RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
+    }
+
+    if ((ret = rte_eth_dev_configure(port, 1, 1, &port_conf))) {
+        fprintf(stderr, "Failed to configure port %u: %s\n", 
+                port, strerror(-ret));
+        return ret;
+    }
+
+    uint16_t nb_rxd = RX_RING_SIZE;
+    uint16_t nb_txd = TX_RING_SIZE;
+    if ((ret = rte_eth_dev_adjust_nb_rx_tx_desc(port, &nb_rxd, &nb_txd))) {
+        fprintf(stderr, "Failed to adjust descriptors for port %u\n", port);
+        return ret;
+    }
+
+    /* Configure RX queue */
+    if ((ret = rte_eth_rx_queue_setup(port, 0, nb_rxd,
+            rte_eth_dev_socket_id(port), NULL, mbuf_pool))) {
+        fprintf(stderr, "RX queue setup failed for port %u: %s\n",
+                port, strerror(-ret));
+        return ret;
+    }
+
+    /* Configure TX queue */
+    txconf = dev_info.default_txconf;
+    txconf.offloads = port_conf.txmode.offloads;
+    if ((ret = rte_eth_tx_queue_setup(port, 0, nb_txd,
+            rte_eth_dev_socket_id(port), &txconf))) {
+        fprintf(stderr, "TX queue setup failed for port %u: %s\n",
+                port, strerror(-ret));
+        return ret;
+    }
+
+    if ((ret = rte_eth_dev_start(port))) {
+        fprintf(stderr, "Failed to start port %u: %s\n",
+                port, strerror(-ret));
+        return ret;
+    }
+
+    /* Wait for link up */
+    struct rte_eth_link link;
+    int retry = 0;
+    int max_retries = 10;
+    
+    printf("Waiting for port %u link to come up...\n", port);
+    
+    do {
+        memset(&link, 0, sizeof(link));
+        ret = rte_eth_link_get_nowait(port, &link);
         
-            if (nb_rx == 0)
-                continue;
+        if (ret == 0 && link.link_status == RTE_ETH_LINK_UP) {
+            printf("Port %u Link Up - Speed %u Mbps - %s\n",
+                port, link.link_speed,
+                link.link_duplex ? "Full-duplex" : "Half-duplex");
+            break;
+        }
         
-            for (unsigned j = 0; j < nb_rx; j++) {
-                uint16_t src_port = ports.id[i];
-                uint16_t dst_port = ports.id[(i + 1) % ports.num_ports];  // Forward to the next port
+        if (retry++ >= max_retries) {
+            fprintf(stderr, "Warning: Port %u link did not come up after %d attempts\n", 
+                    port, max_retries);
+            fprintf(stderr, "Continuing anyway - port may not be connected\n");
+            break;
+        }
         
-                handle_packet(bufs[j]);
-        
-                // Transmit packets to the next port
-                const uint16_t nb_tx = rte_eth_tx_burst(dst_port, 0, &bufs[j], 1);
-        
-                if (nb_tx < 1) {
-                    rte_pktmbuf_free(bufs[j]); // Drop packet if transmission fails
+        printf("Waiting for port %u link (attempt %d/%d)...\n", 
+               port, retry, max_retries);
+        rte_delay_ms(1000);
+    } while (retry <= max_retries);
+
+    /* Enable promiscuous mode */
+    if ((ret = rte_eth_promiscuous_enable(port)) != 0) {
+        fprintf(stderr, "Warning: Promiscuous mode enable failed for port %u: %s\n", 
+                port, strerror(-ret));
+    }
+    
+    return 0;
+}
+
+static void cleanup_dpdk(DpdkContext *ctx) {
+    if (!ctx) return;
+
+    /* Stop and close ports */
+    for (int i = 0; i < ctx->ports.num_ports; i++) {
+        uint16_t port = ctx->ports.id[i];
+        if (rte_eth_dev_is_valid_port(port)) {
+            printf("Stopping port %u\n", port);
+            
+            struct rte_eth_link link;
+            if (rte_eth_link_get_nowait(port, &link) == 0) {
+                if (rte_eth_dev_socket_id(port) != SOCKET_ID_ANY) {
+                    rte_eth_dev_stop(port);
+                    rte_eth_dev_close(port);
+                    printf("Port %u closed successfully\n", port);
                 }
             }
-        
-            print_packet_stats(ports.id[i]);
         }
     }
-}
 
-/**
- * @brief Initialize the DPDK environment and launch worker threads.
- *
- * @param argc Argument count.
- * @param argv Argument vector.
- */
-void dpdkInit(int argc, char *argv[])
-{
-    int retval;
-    uint16_t i;
-    struct rte_mempool *mbuf_pool;
-    unsigned nb_ports;
-    uint16_t portid;
-
-    int ret = rte_eal_init(argc, argv);
-    if (ret < 0)
-        rte_exit(EXIT_FAILURE, "Error with EAL initialization\n");
-
-    argc -= ret;
-    argv += ret;
-
-    // Parse the port mask from the arguments
-    char temp[6] = {0};
-    sprintf(temp, "%s", &argv[1][2]);
-    parse_portmask(temp);
-    nb_ports = ports.num_ports;
-
-    // Create memory buffer pool
-    mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", NUM_MBUFS * nb_ports, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
-    if (mbuf_pool == NULL)
-        rte_exit(EXIT_FAILURE, "Cannot create mbuf pool\n");
-
-    // Initialize each port
-    for (i = 0; i < ports.num_ports; i++)
-    {
-        retval = port_init(ports.id[i], mbuf_pool);
-        if (retval != 0)
-            rte_exit(EXIT_FAILURE, "Cannot initialise port %u\n", (unsigned)i);
+    /* Free memory pool */
+    if (ctx->mbuf_pool) {
+        printf("Freeing mbuf pool\n");
+        rte_mempool_free(ctx->mbuf_pool);
+        ctx->mbuf_pool = NULL;
     }
 
-    // Enter main processing loop
-    lcore_main();
-    rte_eal_cleanup();
+    printf("DPDK cleanup complete\n");
+}
+
+/* Worker thread function for packet processing */
+static int worker_main(void *arg) {
+    DpdkContext *ctx = (DpdkContext *)arg;
+    const unsigned lcore_id = rte_lcore_id();
+    const uint64_t timer_freq = rte_get_timer_hz();
+    uint64_t prev_tsc = 0;
+
+    printf("Worker thread started on lcore %u\n", lcore_id);
+
+    while (ctx->running) {
+        const uint64_t curr_tsc = rte_rdtsc();
+        
+        /* Print statistics every second */
+        if (curr_tsc - prev_tsc > timer_freq) {
+            for (int i = 0; i < ctx->ports.num_ports; i++) {
+                print_packet_stats(ctx->ports.id[i]);
+            }
+            prev_tsc = curr_tsc;
+        }
+
+        /* Process packets on all ports */
+        for (int i = 0; i < ctx->ports.num_ports; i++) {
+            struct rte_mbuf *bufs[BURST_SIZE];
+            const uint16_t port = ctx->ports.id[i];
+            
+            if (!rte_eth_dev_is_valid_port(port)) {
+                continue;
+            }
+            
+            const uint16_t rx_cnt = rte_eth_rx_burst(port, 0, bufs, BURST_SIZE);
+            if (rx_cnt == 0) continue;
+
+            uint16_t tx_port = port;
+            for (int p = 1; p < ctx->ports.num_ports; p++) {
+                uint16_t candidate = ctx->ports.id[(i+p) % ctx->ports.num_ports];
+                if (rte_eth_dev_is_valid_port(candidate)) {
+                    tx_port = candidate;
+                    break;
+                }
+            }
+
+            for (uint16_t j = 0; j < rx_cnt; j++) {
+                handle_packet(bufs[j]);
+                
+                if (port != tx_port) {
+                    const uint16_t tx_cnt = rte_eth_tx_burst(tx_port, 0, &bufs[j], 1);
+                    if (tx_cnt == 0) {
+                        rte_pktmbuf_free(bufs[j]);
+                    }
+                } else {
+                    rte_pktmbuf_free(bufs[j]);
+                }
+            }
+        }
+    }
+
+    printf("Worker thread on lcore %u exiting\n", lcore_id);
+    return 0;
+}
+
+int dpdkInit(int argc, char *argv[]) {
+    int ret;
+
+    /* Initialize EAL */
+    ret = rte_eal_init(argc, argv);
+    if (ret < 0) {
+        fprintf(stderr, "EAL initialization failed: %s\n", rte_strerror(rte_errno));
+        return -1;
+    }
+
+    /* Parse application arguments after '--' */
+    int app_argc = argc - ret;
+    char **app_argv = argv + ret;
+
+    if (app_argc < 2) {
+        fprintf(stderr, "Insufficient application arguments\n");
+        return -1;
+    }
+
+    /* Extract portmask */
+    char *portmask = NULL;
+    for (int i = 0; i < app_argc; i++) {
+        if (strcmp(app_argv[i], "-p") == 0) {
+            if (i + 1 < app_argc) {
+                portmask = app_argv[i + 1];
+                break;
+            }
+        }
+    }
+
+    if (!portmask) {
+        fprintf(stderr, "Portmask (-p) not found in arguments\n");
+        return -1;
+    }
+
+    if (strlen(portmask) < 3 || strncmp(portmask, "0x", 2) != 0) {
+        fprintf(stderr, "Invalid portmask format: %s\n", portmask);
+        fprintf(stderr, "Portmask must be in hexadecimal format with 0x prefix (e.g., 0x1)\n");
+        return -1;
+    }
+
+    if (parse_portmask(portmask, &g_ctx.ports) != 0) {
+        fprintf(stderr, "Portmask parsing failed\n");
+        return -1;
+    }
+
+    printf("Detected %d ports in portmask %s\n", g_ctx.ports.num_ports, portmask);
+    for (int i = 0; i < g_ctx.ports.num_ports; i++) {
+        printf("Using port ID: %u\n", g_ctx.ports.id[i]);
+    }
+
+    /* Create memory pool */
+    g_ctx.mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", 
+        NUM_MBUFS * g_ctx.ports.num_ports,
+        MBUF_CACHE_SIZE, 0,
+        RTE_MBUF_DEFAULT_BUF_SIZE,
+        rte_socket_id());
+
+    if (!g_ctx.mbuf_pool) {
+        fprintf(stderr, "MBUF pool creation failed: %s\n", rte_strerror(rte_errno));
+        return -1;
+    }
+
+    /* Configure ports */
+    bool any_port_configured = false;
+    for (int i = 0; i < g_ctx.ports.num_ports; i++) {
+        ret = configure_port(g_ctx.ports.id[i], g_ctx.mbuf_pool);
+        if (ret == 0) {
+            any_port_configured = true;
+        } else {
+            fprintf(stderr, "Warning: Port %u configuration failed\n", g_ctx.ports.id[i]);
+        }
+    }
+
+    if (!any_port_configured) {
+        fprintf(stderr, "Error: No ports could be configured\n");
+        cleanup_dpdk(&g_ctx);
+        return -1;
+    }
+
+    /* Register signal handlers */
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
+    /* Launch worker threads on available lcores */
+    g_ctx.running = true;
+    g_ctx.num_workers = 0;
+    
+    unsigned lcore_id;
+    RTE_LCORE_FOREACH_WORKER(lcore_id) {
+        if (g_ctx.num_workers >= MAX_WORKER_LCORES) {
+            printf("Warning: Reached maximum number of worker lcores (%d)\n", MAX_WORKER_LCORES);
+            break;
+        }
+        
+        g_ctx.worker_lcore_ids[g_ctx.num_workers++] = lcore_id;
+        rte_eal_remote_launch(worker_main, &g_ctx, lcore_id);
+        printf("Launched worker thread on lcore %u\n", lcore_id);
+    }
+
+    if (g_ctx.num_workers == 0) {
+        printf("Warning: No worker lcores available, running on main lcore\n");
+        worker_main(&g_ctx);
+    } else {
+        /* Main lcore waits for workers to complete */
+        RTE_LCORE_FOREACH_WORKER(lcore_id) {
+            if (rte_eal_wait_lcore(lcore_id) < 0) {
+                fprintf(stderr, "Worker lcore %u exited with error\n", lcore_id);
+            }
+        }
+    }
+
+    cleanup_dpdk(&g_ctx);
+    return 0;
 }
