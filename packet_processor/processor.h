@@ -16,5 +16,5 @@
 #define ETH_VLAN_HLEN        4
 
 int packet_processor_main(void *arg);
-
+int stop_packet_processor(void *arg);
 #endif // PROCESSOR_H

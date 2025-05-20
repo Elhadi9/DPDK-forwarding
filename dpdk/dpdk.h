@@ -13,6 +13,7 @@
 typedef struct {
     uint16_t num_ports;
     uint16_t port_ids[RTE_MAX_ETHPORTS];
+    uint16_t num_queues;
 } dpdk_port_config;
 
 int dpdk_initialize(void);
