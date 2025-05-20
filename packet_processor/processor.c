@@ -8,8 +8,10 @@
 
 static rte_atomic32_t keep_running = RTE_ATOMIC32_INIT(1);
 
-// Per-core packet counter
+// Per-core packet counters
 RTE_DEFINE_PER_LCORE(uint64_t, packet_count) = 0;
+RTE_DEFINE_PER_LCORE(uint64_t, udp_forwarded) = 0;
+RTE_DEFINE_PER_LCORE(uint64_t, tcp_dropped) = 0;
 
 // Packet metadata structure
 typedef struct {
@@ -76,7 +78,7 @@ static struct rte_ether_hdr *handle_vlan(struct rte_ether_hdr *eth_hdr) {
 }
 
 // Main packet handler
-static void handle_packet(struct rte_mbuf *buf) {
+static void handle_packet(struct rte_mbuf *buf, uint16_t rx_port_id, uint16_t tx_port_id) {
     PacketMetadata meta = {0};
     RTE_PER_LCORE(packet_count)++;
 
@@ -93,48 +95,81 @@ static void handle_packet(struct rte_mbuf *buf) {
         return;
     }
 
-    // Debug: Log packet details (disable in production)
-    printf("[Core %u] Packet: SRC %s:%u -> DST %s:%u, Proto %s\n",
-           rte_lcore_id(), meta.src_ip, meta.src_port, meta.dst_ip, meta.dst_port,
-           meta.protocol == IPPROTO_TCP ? "TCP" : "UDP");
-
-    // Free packet (no TX in this example)
-    rte_pktmbuf_free(buf);
+    // Check protocol and decide action
+    if (meta.protocol == IPPROTO_TCP) {
+        RTE_PER_LCORE(tcp_dropped)++;
+        // Log every 100th dropped TCP packet
+        if (RTE_PER_LCORE(tcp_dropped) % 100 == 0) {
+            printf("[Core %u] Dropped TCP: SRC %s:%u -> DST %s:%u\n",
+                   rte_lcore_id(), meta.src_ip, meta.src_port, meta.dst_ip, meta.dst_port);
+        }
+        rte_pktmbuf_free(buf);
+        return;
+    } else if (meta.protocol == IPPROTO_UDP) {
+        // Log every 100th forwarded UDP packet
+        if (RTE_PER_LCORE(packet_count) % 100 == 0) {
+            printf("[Core %u] Forwarding UDP: SRC %s:%u -> DST %s:%u from Port %u to Port %u\n",
+                   rte_lcore_id(), meta.src_ip, meta.src_port, meta.dst_ip, meta.dst_port,
+                   rx_port_id, tx_port_id);
+        }
+        // Check if TX port is up before forwarding
+        struct rte_eth_link link;
+        rte_eth_link_get_nowait(tx_port_id, &link);
+        if (link.link_status != RTE_ETH_LINK_UP) {
+            RTE_PER_LCORE(tcp_dropped)++; // Count as dropped
+            rte_pktmbuf_free(buf);
+            return;
+        }
+        // Forward packet
+        uint16_t nb_tx = rte_eth_tx_burst(tx_port_id, 0, &buf, 1);
+        if (nb_tx == 1) {
+            RTE_PER_LCORE(udp_forwarded)++;
+        } else {
+            RTE_PER_LCORE(tcp_dropped)++; // Count as dropped if TX fails
+            rte_pktmbuf_free(buf);
+        }
+    } else {
+        rte_pktmbuf_free(buf);
+    }
 }
 
 int packet_processor_main(void *arg) {
     struct worker_config *config = (struct worker_config *)arg;
     unsigned lcore_id = rte_lcore_id();
-    uint16_t port_id = config->port_id;
+    uint16_t rx_port_id = config->port_id;
+    uint16_t tx_port_id = config->tx_port_id;
     uint16_t queue_id = config->queue_id;
     uint64_t total_packets = 0;
     uint64_t last_print = 0;
     const uint64_t print_interval = rte_get_tsc_hz(); // 1 second
 
-    printf("Packet processor started on core %u, port %u, queue %u\n", 
-           lcore_id, port_id, queue_id);
+    printf("Packet processor started on core %u, RX port %u, TX port %u, queue %u\n", 
+           lcore_id, rx_port_id, tx_port_id, queue_id);
 
     while (rte_atomic32_read(&keep_running)) {
         bool work_done = false;
         uint64_t start_cycle = rte_rdtsc();
 
-        // Process packets from assigned port and queue
+        // Process packets from assigned RX port and queue
         struct rte_mbuf *mbufs[BURST_SIZE];
-        uint16_t nb_rx = rte_eth_rx_burst(port_id, queue_id, mbufs, BURST_SIZE);
+        uint16_t nb_rx = rte_eth_rx_burst(rx_port_id, queue_id, mbufs, BURST_SIZE);
         if (nb_rx > 0) {
             work_done = true;
             total_packets += nb_rx;
 
             for (uint16_t j = 0; j < nb_rx; j++) {
-                handle_packet(mbufs[j]);
+                handle_packet(mbufs[j], rx_port_id, tx_port_id);
             }
         }
 
         // Periodic stats printing
         if (start_cycle - last_print > print_interval) {
-            printf("Core %u, Port %u, Queue %u: Processed %"PRIu64" packets (%.2f Mpps)\n",
-                   lcore_id, port_id, queue_id, total_packets, (double)total_packets / 1000000);
+            printf("Core %u, RX Port %u, Queue %u: Processed %"PRIu64" pkts, Forwarded %"PRIu64" UDP, Dropped %"PRIu64" TCP (%.2f Mpps)\n",
+                   lcore_id, rx_port_id, queue_id, total_packets, RTE_PER_LCORE(udp_forwarded), 
+                   RTE_PER_LCORE(tcp_dropped), (double)total_packets / 1000000);
             total_packets = 0;
+            RTE_PER_LCORE(udp_forwarded) = 0;
+            RTE_PER_LCORE(tcp_dropped) = 0;
             last_print = start_cycle;
         }
 
@@ -143,8 +178,8 @@ int packet_processor_main(void *arg) {
         }
     }
 
-    printf("Packet processor exiting on core %u, port %u, queue %u\n", 
-           lcore_id, port_id, queue_id);
+    printf("Packet processor exiting on core %u, RX port %u, TX port %u, queue %u\n", 
+           lcore_id, rx_port_id, tx_port_id, queue_id);
     return 0;
 }
 

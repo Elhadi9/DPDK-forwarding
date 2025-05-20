@@ -5,7 +5,6 @@
 #include <rte_lcore.h>
 #include "dpdk/dpdk.h"
 #include "packet_processor/processor.h"
-
 #include "private.h"
 
 // Signal handler context
@@ -59,18 +58,28 @@ int main(int argc, char *argv[])
     RTE_LCORE_FOREACH_WORKER(lcore_id) {
         if (num_workers >= MAX_WORKER_CORES) break;
         while (port_idx < port_config->num_ports) {
-            uint16_t port_id = port_config->port_ids[port_idx];
+            uint16_t rx_port_id = port_config->port_ids[port_idx];
             struct rte_eth_link link;
-            rte_eth_link_get_nowait(port_id, &link);
+            rte_eth_link_get_nowait(rx_port_id, &link);
             if (link.link_status == RTE_ETH_LINK_UP) {
+                // Assign RX and TX ports (opposite port for forwarding)
+                uint16_t tx_port_id = (port_idx + 1) % port_config->num_ports;
+                // Ensure TX port is up
+                rte_eth_link_get_nowait(port_config->port_ids[tx_port_id], &link);
+                if (port_config->num_ports > 1 && link.link_status != RTE_ETH_LINK_UP) {
+                    printf("Warning: TX Port %u is down for RX Port %u, packets may be dropped\n", 
+                           tx_port_id, rx_port_id);
+                }
                 workers[num_workers].lcore_id = lcore_id;
-                workers[num_workers].port_id = port_id;
+                workers[num_workers].port_id = rx_port_id;
+                workers[num_workers].tx_port_id = tx_port_id;
                 workers[num_workers].queue_id = 0; // Single queue
                 num_workers++;
-                printf("Assigned worker core %u to port %u, queue 0\n", lcore_id, port_id);
+                printf("Assigned worker core %u to RX port %u, TX port %u, queue 0\n", 
+                       lcore_id, rx_port_id, tx_port_id);
                 break; // Stay on this port for more cores
             } else {
-                printf("Skipping port %u (link down)\n", port_id);
+                printf("Skipping RX port %u (link down)\n", rx_port_id);
                 port_idx++;
             }
         }
@@ -90,8 +99,8 @@ int main(int argc, char *argv[])
         if (ret != 0) {
             fprintf(stderr, "Failed to launch worker core %u: %s\n", workers[i].lcore_id, rte_strerror(ret));
         } else {
-            printf("Launched worker core %u on port %u, queue 0\n", 
-                   workers[i].lcore_id, workers[i].port_id);
+            printf("Launched worker core %u on RX port %u, TX port %u, queue 0\n", 
+                   workers[i].lcore_id, workers[i].port_id, workers[i].tx_port_id);
         }
     }
 
