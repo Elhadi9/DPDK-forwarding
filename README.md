@@ -43,6 +43,8 @@ Make: Build automation tool.
 
 Linux Kernel Headers: Required for DPDK’s user-space drivers.
 
+json-C lib.
+
 libnuma-dev: NUMA support for DPDK memory allocation.
 
 Hugepages: DPDK requires hugepages for memory management.
